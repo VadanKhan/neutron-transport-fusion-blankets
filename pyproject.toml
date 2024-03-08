@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "fusion-blankets"
+version = "0.1.0"
+description = ""
+authors = ["Vadan Khan <vadankhan1@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+numpy = "^1.26.4"
+scipy = "^1.12.0"
+pandas = "^2.2.1"
+matplotlib = "^3.8.3"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[virtualenvs]
+create = true
+in-project = true
