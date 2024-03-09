@@ -2,31 +2,38 @@ import numpy as np
 import matplotlib.pyplot as plt
 # from mpl_toolkits.mplot3d import Axes3D
 # import time
-import pandas as pd
 
 # %% Neutron Transport Class & Functions
 
 
 class Neutron:
-    def __init__(self, speed):
-        self.path = [(0, 0, 0)]  # Initialize with position at origin
+    def __init__(self, speed, material='vacuum', initial_position=(0, 0, 0)):
+        self.path = [initial_position]  # Initialize with position at origin
         self.status = 0  # Initialize as in range of simulation
         self.direction = {'theta': np.pi / 2, 'phi': 0}  # Initialize moving in x direction
         self.speed = speed  # Mean free paths per second
+        self.material = material  # Material the neutron is in
 
     def scatter(self):
         # Randomize theta and phi when scattered
         self.direction['theta'] = np.arccos(1 - 2 * np.random.uniform())
         self.direction['phi'] = 2 * np.pi * np.random.uniform()
 
-    def move(self, record_lambda):
+    def move(self, record_lambda=None):
         # Calculate new position based on current direction and speed
-        x = self.path[-1][0] + self.speed * np.sin(self.direction['theta']) * np.cos(
-            self.direction['phi']) * (-record_lambda * np.log(np.random.uniform()))
-        y = self.path[-1][1] + self.speed * np.sin(self.direction['theta']) * np.sin(
-            self.direction['phi']) * (-record_lambda * np.log(np.random.uniform()))
-        z = self.path[-1][2] + self.speed * \
-            np.cos(self.direction['theta']) * (-record_lambda * np.log(np.random.uniform()))
+        if record_lambda is None:  # If in vacuum
+            x = self.path[-1][0] + self.speed * \
+                np.sin(self.direction['theta']) * np.cos(self.direction['phi'])
+            y = self.path[-1][1] + self.speed * \
+                np.sin(self.direction['theta']) * np.sin(self.direction['phi'])
+            z = self.path[-1][2] + self.speed * np.cos(self.direction['theta'])
+        else:  # If not in vacuum
+            x = self.path[-1][0] + self.speed * np.sin(self.direction['theta']) * np.cos(
+                self.direction['phi']) * (-record_lambda * np.log(np.random.uniform()))
+            y = self.path[-1][1] + self.speed * np.sin(self.direction['theta']) * np.sin(
+                self.direction['phi']) * (-record_lambda * np.log(np.random.uniform()))
+            z = self.path[-1][2] + self.speed * \
+                np.cos(self.direction['theta']) * (-record_lambda * np.log(np.random.uniform()))
         self.path.append((x, y, z))
 
     def absorb(self):
@@ -46,16 +53,18 @@ class Neutron:
         self.status = 4
 
 
-def simulate_neutron_flux_store(cross_section, number_density, scattering_cross_section,
+def simulate_neutron_flux_store(materials, proportions, number_density, scattering_cross_sections, absorption_cross_sections,
                                 num_iterations=1000, neutron_number=10, breeder_lims=(100, 200),
                                 finite_space_lims=(0, 300), y_lims=(-50, 50), z_lims=(-50, 50), velocity=1):
     '''
     This function simulates a flux of neutrons from one direction for a certain number of iterations.
 
     Parameters:
-    cross_section: Nuclear cross section of the material.
+    materials: List of materials in the breeder blanket.
+    proportions: Proportions of the materials in the breeder blanket.
     number_density: Number density of the material.
-    scattering_cross_section: Scattering cross section of the material.
+    scattering_cross_sections: Scattering cross sections of the materials.
+    absorption_cross_sections: Absorption cross sections of the materials.
     num_iterations: The number of iterations for which the simulation should run.
     neutron_number: The number of neutrons to start with (default is 10).
     breeder_lims: The x limits of the breeder region (default is (100, 200)).
@@ -68,32 +77,59 @@ def simulate_neutron_flux_store(cross_section, number_density, scattering_cross_
     number_absorbed, number_transmitted, number_reflected, number_in_blanket, paths: The number of neutrons absorbed,
     transmitted, reflected, in blanket, and the paths of all neutrons.
     '''
-    # Calculate the mean free path and absorption probability
-    record_lambda = 1 / (number_density * cross_section)
-    prob_a = cross_section * number_density
-    prob_s = scattering_cross_section * number_density
-
-    # Initialize the neutrons
+    # Initialize the neutrons in vacuum
     neutrons = [Neutron(velocity) for _ in range(neutron_number)]
+
+    neutrons = [  # Initialise Neutron Flux randomly across the x=0 plane
+        Neutron(
+            velocity,
+            initial_position=(
+                0,
+                np.random.uniform(
+                    *
+                    y_lims),
+                np.random.uniform(
+                    *
+                    z_lims))) for _ in range(neutron_number)]
 
     num_transmitted = 0
     num_absorbed = 0
     num_reflected = 0
     num_in_blanket = 0
+    # Initialize the dictionary for absorbed materials
+    absorbed_materials = {material: 0 for material in materials}
 
     for _ in range(num_iterations):
         for neutron in neutrons:
             if neutron.status == 0:  # Only move neutrons that are still in the loop
+                if neutron.material != 'vacuum':
+                    # Calculate the mean free path and absorption probability for the current
+                    # material
+                    record_lambda = 1 / \
+                        (number_density * absorption_cross_sections[neutron.material])
+                else:
+                    record_lambda = None
                 neutron.move(record_lambda)
                 x, y, z = neutron.path[-1]
                 if ((x > breeder_lims[0]) and (x < breeder_lims[1]) and
                     (y > y_lims[0]) and (y < y_lims[1]) and
                         (z > z_lims[0]) and (z < z_lims[1])):
-                    if np.random.uniform() < prob_a:
-                        neutron.absorb()
-                        num_absorbed += 1
-                    elif np.random.uniform() < prob_s:
-                        neutron.scatter()
+                    # Randomly choose a material for the neutron based on the proportions
+                    neutron.material = np.random.choice(materials, p=proportions)
+                    if neutron.material != 'vacuum':
+                        # Calculate the mean free path and absorption probability for the current
+                        # material
+                        record_lambda = 1 / \
+                            (number_density * absorption_cross_sections[neutron.material])
+                        prob_a = absorption_cross_sections[neutron.material] * number_density
+                        prob_s = scattering_cross_sections[neutron.material] * number_density
+                        if np.random.uniform() < prob_a:
+                            neutron.absorb()
+                            # Increment the count for the material
+                            absorbed_materials[neutron.material] += 1
+                            num_absorbed += 1
+                        elif np.random.uniform() < prob_s:
+                            neutron.scatter()
                 if ((x > breeder_lims[1])  # if beyond blanket: "Transmitted"
                     and ((y < y_lims[0]) or (y > y_lims[1]) or  # Out of fiducial range conditions
                          (z < z_lims[0]) or (z > z_lims[1]) or (x > finite_space_lims[1]))):
@@ -113,7 +149,8 @@ def simulate_neutron_flux_store(cross_section, number_density, scattering_cross_
     # Extract the paths from the neutrons
     paths = [neutron.path for neutron in neutrons]
 
-    return num_absorbed, num_transmitted, num_reflected, num_in_blanket, paths
+    return num_absorbed, num_transmitted, num_reflected, num_in_blanket, paths, absorbed_materials
+
 
 # %% Plotting Functions
 
@@ -155,61 +192,74 @@ def plot_neutron_paths(paths, x_lims=(0, 300), y_lims=(-100, 100), z_lims=(-100,
     ax.set_zlabel('Z')
 
 
-def plot_pie_charts(num_reflected, num_absorbed, num_transmitted, num_in_blanket):
+def plot_pie_charts(num_reflected, num_transmitted, num_in_blanket, absorbed_materials):
     """
-    This function generates a pie chart for the reflection, absorption, and transmission processes
+    This function generates a pie chart for the reflection, transmission, and absorption processes
     for a single material.
 
     Parameters:
     num_reflected: The number of neutrons reflected.
-    num_absorbed: The number of neutrons absorbed.
     num_transmitted: The number of neutrons transmitted.
+    num_in_blanket: The number of neutrons in the blanket.
+    absorbed_materials: A dictionary with the number of neutrons absorbed in each material.
 
     Returns:
     None. The function generates a pie chart.
     """
     import matplotlib.pyplot as plt
 
-    processes = 'Reflection', 'Absorption', 'Transmission', 'Scattered within Blanket'
-    explode = (0.05, 0.05, 0.05, 0.05)
+    processes = ['Reflection', 'Transmission', 'In Blanket'] + list(absorbed_materials.keys())
+    counts = [num_reflected, num_transmitted, num_in_blanket] + list(absorbed_materials.values())
+    explode = (0.05,) * len(processes)
     fig, ax = plt.subplots(figsize=(6, 6))
-    ax.pie((num_reflected, num_absorbed, num_transmitted, num_in_blanket),
-           labels=processes, explode=explode, autopct='%1.0f%%')
-
+    ax.pie(counts, labels=processes, explode=explode, autopct='%1.0f%%')
 # %% Main
 
 
 def main():
-    # Define your parameters
-    cross_section_absorption = 0.1  # Nuclear absorptioncross section of the material
-    cross_section_scattering = 0.1  # Nuclear cross section of the material
+    # Define the proprotions of material that exist within the breeder blanket
+    materials = ['Lead', 'Lithium-6', 'Lithium-7']
+    proportions = [0.8, 0.1, 0.1]  # NB THE PROPROTIONS HAVE TO MATCH TO THE MATERIALS ABOVE
+    # Nuclear absorption cross section of the material
+    cross_section_absorptions = {'Lead': 0.2, 'Lithium-6': 0.2, 'Lithium-7': 0.2}
+    # Nuclear scattering cross section of the material
+    cross_section_scatterings = {'Lead': 0.1, 'Lithium-6': 0.1, 'Lithium-7': 0.1}
     number_density = 0.2  # Number density of the material
-    number_iterations = 100  # The time for which the simulation should run
-    neutron_number_set = 1000
-    breeder_lims_set = (100, 200)
-    xlims_set = (-50, breeder_lims_set[1] + 100)
+    number_iterations = 1000  # The time for which the simulation should run
+    neutron_number_set = 500  # The number of starting neutrons
+    breeder_lims_set = (100, 1200)  # The x values of where the breeder material begins and ends
+    xlims_set = (-50, breeder_lims_set[1] + 100)  # NB these are the boundary conditions for the
+    # simulation, can adjust as you wish.
     ylims_set = (-50, 50)
     zlims_set = (-50, 50)
 
     # Call the simulate_neutron_flux function
-    num_absorbed, num_transmitted, num_reflected, num_in_blanket, paths = \
-        simulate_neutron_flux_store(cross_section_absorption, number_density, cross_section_scattering,
-                                    num_iterations=number_iterations,
-                                    neutron_number=neutron_number_set, breeder_lims=breeder_lims_set,
+    num_absorbed, num_transmitted, num_reflected, num_in_blanket, paths, absorbed_materials = \
+        simulate_neutron_flux_store(materials, proportions, number_density, cross_section_scatterings,
+                                    cross_section_absorptions,
+                                    number_iterations, neutron_number_set, breeder_lims_set,
                                     finite_space_lims=xlims_set, y_lims=ylims_set, z_lims=zlims_set,
                                     velocity=1)
 
+    # Absorbed is when a neutron has reacted with the blanket material
     print(f"Number of Neutrons Absorbed: {num_absorbed}")
+    # Transmitted is when a neutron has left the simulation boundaries after passing through
+    # the blanket
     print(f"Number of Neutrons Transmitted: {num_transmitted}")
+    # Reflected is when a neutron has left the simulation boundaries in front of the blanket
     print(f"Number of Neutrons Reflected: {num_reflected}")
+    # "in blanket" refers to when a neutron has left the simulation while within the blanket
+    # for approximation reasons we will ignore these ones
     print(f"Number of Neutrons in Blanket: {num_in_blanket}")
 
     # Call the plot_pie_charts function
-    plot_pie_charts(num_reflected, num_absorbed, num_transmitted, num_in_blanket)
+    plot_pie_charts(num_reflected, num_transmitted, num_in_blanket, absorbed_materials)
 
     # Call the plot_neutron_paths function
     plot_neutron_paths(paths, x_lims=xlims_set, y_lims=ylims_set,
-                       z_lims=zlims_set, breeder_lims=breeder_lims_set, n=1)
+                       z_lims=zlims_set, breeder_lims=breeder_lims_set, n=5)
+    # Note "n" makes it so only "n" of the neutron paths are plotted. This increased to reduce
+    # plotting load.
 
     plt.show()
 

@@ -1,35 +1,32 @@
-# Neutron Transport Simulation
+# Neutron Transport in Fusion Blankets
 
-This script simulates the motion of a neutron through different materials using the Woodcock method. It also generates various plots to visualize the results.
+This repository contains scripts for simulating neutron transport in fusion blankets. The main script is `fusion_blankets.py`, which uses the Woodcock method to simulate neutron transport in a fusion blanket composed of different materials.
 
 ## Features
 
-- Calculation of absorption probability and mean free path for different materials (water and lithium).
-- Generation of histograms for absorption mean free path and total mean free path.
-- Simulation of neutron processes (reflection, absorption, transmission).
-- Simulation of neutron trajectory in 3D.
-- Generation of pie charts for reflection, absorption, and transmission processes.
+- Simulation of neutron transport in fusion blankets.
+- Calculation of absorption probability and mean free path for different materials.
+- Tracking of neutron processes (reflection, absorption, transmission, in blanket).
+- Generation of pie charts for neutron processes.
+- Visualization of neutron paths in 3D.
 
-## Functions
+## Scripts
 
-- `water_props()`: Calculates the absorption probability and mean free path for water.
-- `lithium_props()`: Calculates the absorption probability and mean free path for lithium.
-- `generate_histogram()`: Generates a histogram for a given set of data.
-- `calculate_neutron_processes()`: Simulates the reflection, absorption, and transmission of neutrons.
-- `simulate_neutron_trajectory()`: Simulates the trajectory of a neutron and generates a 3D plot.
-- `plot_pie_charts()`: Generates pie charts for the reflection, absorption, and transmission processes.
-- `main()`: Main function that calls all other functions and generates the plots.
+- `fusion_blankets.py`: The main script. It defines a `Neutron` class for simulating neutron transport, and functions for simulating neutron flux and plotting the results.
+- `monte_carlo.py`: A script for Monte Carlo simulations (not detailed in this README).
+- `raw_scripts.py`: A script containing raw scripts (not detailed in this README).
 
-## Runtime
+## Usage
 
-The script uses the `time` module to measure the runtime of each function. The runtime is printed to the console.
+1. Define your parameters at the beginning of the `main` function in `fusion_blankets.py`.
+2. Run `fusion_blankets.py`. This will simulate neutron flux for the defined parameters and generate a pie chart and a 3D plot of neutron paths.
+3. The pie chart shows the proportions of neutrons reflected, absorbed, transmitted, and in the blanket. The absorbed category is further broken down by material.
+4. The 3D plot shows the paths of neutrons in the fusion blanket.
 
 ## Requirements
 
 - Python 3.12
 - NumPy 1.26.4
-- SciPy 1.12.0
-- Pandas 2.2.1
 - Matplotlib 3.8.3
 
 ## Setup with Poetry
@@ -55,15 +52,9 @@ This will create a virtual environment and install the dependencies specified in
 poetry config virtualenvs.in-project true
 ```
 
-
 4. You can then run the script within the virtual environment:
 
 ```bash
-poetry run python main.py
+poetry run python fusion_blankets.py
 ```
-
-Or if you have created the .venv in your cwd you can switch your interpreter to that directory and
-so run however you wish.
-
-This will generate the histograms, 3D plot, and pie charts.
 
