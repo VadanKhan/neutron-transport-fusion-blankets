@@ -31,17 +31,24 @@ class Neutron:
 
     def absorb(self):
         # Set status to absorbed
-        self.status = 1
+        self.status = 3
 
     def transmit(self):
         # Set status to transmitted
         self.status = 1
 
+    def reflect(self):
+        # Set status to reflected
+        self.status = 2
+
+    def in_blanket(self):
+        # Set status to in blanket
+        self.status = 4
+
 
 def simulate_neutron_flux_store(cross_section, number_density, scattering_cross_section,
                                 num_iterations=1000, neutron_number=10, breeder_lims=(100, 200),
-                                finite_space_lims=(0, 300), y_lims=(-50, 50), z_lims=(-50, 50),
-                                velocity=1):
+                                finite_space_lims=(0, 300), y_lims=(-50, 50), z_lims=(-50, 50), velocity=1):
     '''
     This function simulates a flux of neutrons from one direction for a certain number of iterations.
 
@@ -58,8 +65,8 @@ def simulate_neutron_flux_store(cross_section, number_density, scattering_cross_
     velocity: The velocity of the neutrons in the x direction (default is 1).
 
     Returns:
-    number_absorbed, number_transmitted, paths: The number of neutrons absorbed,
-    transmitted, and the paths of all neutrons.
+    number_absorbed, number_transmitted, number_reflected, number_in_blanket, paths: The number of neutrons absorbed,
+    transmitted, reflected, in blanket, and the paths of all neutrons.
     '''
     # Calculate the mean free path and absorption probability
     record_lambda = 1 / (number_density * cross_section)
@@ -71,6 +78,8 @@ def simulate_neutron_flux_store(cross_section, number_density, scattering_cross_
 
     num_transmitted = 0
     num_absorbed = 0
+    num_reflected = 0
+    num_in_blanket = 0
 
     for _ in range(num_iterations):
         for neutron in neutrons:
@@ -85,16 +94,26 @@ def simulate_neutron_flux_store(cross_section, number_density, scattering_cross_
                         num_absorbed += 1
                     elif np.random.uniform() < prob_s:
                         neutron.scatter()
-                if ((x > finite_space_lims[1]) or (x < finite_space_lims[0]) or
-                    (y > y_lims[1]) or (y < y_lims[0]) or
-                        (z > z_lims[1]) or (z < z_lims[0])):
+                if ((x > breeder_lims[1])  # if beyond blanket: "Transmitted"
+                    and ((y < y_lims[0]) or (y > y_lims[1]) or  # Out of fiducial range conditions
+                         (z < z_lims[0]) or (z > z_lims[1]) or (x > finite_space_lims[1]))):
                     neutron.transmit()
                     num_transmitted += 1
+                elif ((x < breeder_lims[0])  # if before blanket: "Reflected"
+                      and ((y < y_lims[0]) or (y > y_lims[1]) or  # Out of fiducial range conditions
+                           (z < z_lims[0]) or (z > z_lims[1]) or (x < finite_space_lims[0]))):
+                    neutron.reflect()
+                    num_reflected += 1
+                elif ((x > breeder_lims[0]) and (x < breeder_lims[1])  # if still "in blanket"
+                      and ((y < y_lims[0]) or (y > y_lims[1]) or  # Out of fiducial range conditions
+                           (z < z_lims[0]) or (z > z_lims[1]))):
+                    neutron.in_blanket()
+                    num_in_blanket += 1
 
     # Extract the paths from the neutrons
     paths = [neutron.path for neutron in neutrons]
 
-    return num_absorbed, num_transmitted, paths
+    return num_absorbed, num_transmitted, num_reflected, num_in_blanket, paths
 
 # %% Plotting Functions
 
@@ -136,7 +155,7 @@ def plot_neutron_paths(paths, x_lims=(0, 300), y_lims=(-100, 100), z_lims=(-100,
     ax.set_zlabel('Z')
 
 
-def plot_pie_charts(num_reflected, num_absorbed, num_transmitted):
+def plot_pie_charts(num_reflected, num_absorbed, num_transmitted, num_in_blanket):
     """
     This function generates a pie chart for the reflection, absorption, and transmission processes
     for a single material.
@@ -151,10 +170,10 @@ def plot_pie_charts(num_reflected, num_absorbed, num_transmitted):
     """
     import matplotlib.pyplot as plt
 
-    processes = 'Reflection', 'Absorption', 'Transmission'
-    explode = (0.05, 0.05, 0.05)
+    processes = 'Reflection', 'Absorption', 'Transmission', 'Scattered within Blanket'
+    explode = (0.05, 0.05, 0.05, 0.05)
     fig, ax = plt.subplots(figsize=(6, 6))
-    ax.pie((num_reflected, num_absorbed, num_transmitted),
+    ax.pie((num_reflected, num_absorbed, num_transmitted, num_in_blanket),
            labels=processes, explode=explode, autopct='%1.0f%%')
 
 # %% Main
@@ -166,14 +185,14 @@ def main():
     cross_section_scattering = 0.1  # Nuclear cross section of the material
     number_density = 0.2  # Number density of the material
     number_iterations = 100  # The time for which the simulation should run
-    neutron_number_set = 100
-    breeder_lims_set = (100, 1000)
-    xlims_set = (-1, breeder_lims_set[1] + 100)
+    neutron_number_set = 1000
+    breeder_lims_set = (100, 200)
+    xlims_set = (-50, breeder_lims_set[1] + 100)
     ylims_set = (-50, 50)
     zlims_set = (-50, 50)
 
     # Call the simulate_neutron_flux function
-    num_absorbed, num_transmitted, paths = \
+    num_absorbed, num_transmitted, num_reflected, num_in_blanket, paths = \
         simulate_neutron_flux_store(cross_section_absorption, number_density, cross_section_scattering,
                                     num_iterations=number_iterations,
                                     neutron_number=neutron_number_set, breeder_lims=breeder_lims_set,
@@ -182,9 +201,11 @@ def main():
 
     print(f"Number of Neutrons Absorbed: {num_absorbed}")
     print(f"Number of Neutrons Transmitted: {num_transmitted}")
+    print(f"Number of Neutrons Reflected: {num_reflected}")
+    print(f"Number of Neutrons in Blanket: {num_in_blanket}")
 
     # Call the plot_pie_charts function
-    # plot_pie_charts(num_reflected, num_absorbed, num_transmitted)
+    plot_pie_charts(num_reflected, num_absorbed, num_transmitted, num_in_blanket)
 
     # Call the plot_neutron_paths function
     plot_neutron_paths(paths, x_lims=xlims_set, y_lims=ylims_set,
