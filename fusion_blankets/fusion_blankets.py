@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 # from mpl_toolkits.mplot3d import Axes3D
-# import time
+import time
 
 # %% Neutron Transport Class & Functions
 
@@ -22,7 +22,7 @@ class Neutron:
     def move(self, record_lambda=None):
         # Calculate new position based on current direction and speed
         if record_lambda is None:  # If in vacuum
-            vacuum_speed = 0.001
+            vacuum_speed = 0.002
             x = self.path[-1][0] + vacuum_speed * \
                 np.sin(self.direction['theta']) * np.cos(self.direction['phi'])
             y = self.path[-1][1] + vacuum_speed * \
@@ -113,6 +113,7 @@ def simulate_neutron_flux_store(materials, proportions, number_density, scatteri
                           scattering_cross_sections[neutron.material]))  # DEBUG adding scattering
                 else:
                     record_lambda = None
+                # WOODCOCK MOVES NEUTRONS IN STEPS OF MEAN FREE PATH
                 neutron.move(record_lambda)
                 x, y, z = neutron.path[-1]
                 if ((x > breeder_lims[0]) and (x < breeder_lims[1]) and
@@ -163,6 +164,73 @@ def simulate_neutron_flux_store(materials, proportions, number_density, scatteri
     return num_absorbed, num_transmitted, num_reflected, num_in_blanket, num_scatters, paths, \
         absorbed_materials
 
+# %% Sweep Neutron Transport Functions
+
+
+def sweep_thickness(materials, proportions, number_density, cross_section_absorptions, cross_section_scatterings,
+                    number_iterations, neutron_number, thicknesses, init_breed_pos, xlims_set, ylims_set, zlims_set):
+    # Initialize lists to store results
+    transmitted_results = []
+    absorbed_results = []
+    reflected_results = []
+    in_blanket_results = []
+    absorbed_materials_results = {material: [] for material in materials}
+
+    # Loop over all thicknesses
+    for thickness in thicknesses:
+        # Set the limits of the breeder region
+        breeder_lims_set = (init_breed_pos, init_breed_pos + thickness)
+
+        # Call the simulate_neutron_flux function
+        num_absorbed, num_transmitted, num_reflected, num_in_blanket, _, _, absorbed_materials = \
+            simulate_neutron_flux_store(materials, proportions, number_density, cross_section_scatterings,
+                                        cross_section_absorptions,
+                                        number_iterations, neutron_number, breeder_lims_set,
+                                        finite_space_lims=xlims_set, y_lims=ylims_set, z_lims=zlims_set,
+                                        velocity=1)
+
+        # Store the results
+        transmitted_results.append(num_transmitted)
+        absorbed_results.append(num_absorbed)
+        reflected_results.append(num_reflected)
+        in_blanket_results.append(num_in_blanket)
+        for material in materials:
+            absorbed_materials_results[material].append(absorbed_materials[material])
+
+    # Return the results
+    return thicknesses, transmitted_results, absorbed_results, reflected_results, in_blanket_results, absorbed_materials_results
+
+
+def plot_results(thicknesses, transmitted_results, absorbed_results,
+                 reflected_results, in_blanket_results, absorbed_materials_results, neutron_number):
+    # Convert the results to percentages
+    transmitted_results = [result / neutron_number * 100 for result in transmitted_results]
+    absorbed_results = [result / neutron_number * 100 for result in absorbed_results]
+    reflected_results = [result / neutron_number * 100 for result in reflected_results]
+    in_blanket_results = [result / neutron_number * 100 for result in in_blanket_results]
+    absorbed_materials_results = {material: [result / neutron_number * 100 for result in results]
+                                  for material, results in absorbed_materials_results.items()}
+
+    # Plot the results
+    plt.figure(figsize=(10, 10))
+    plt.plot(thicknesses, transmitted_results, label='Transmitted')
+    plt.plot(thicknesses, absorbed_results, label='Absorbed')
+    plt.plot(thicknesses, reflected_results, label='Reflected')
+    plt.plot(thicknesses, in_blanket_results, label='In Blanket')
+    for material, results in absorbed_materials_results.items():
+        plt.plot(thicknesses, results, label=f'Absorbed in {material}')
+
+    # Add a shaded region to indicate the Tritium Balance Threshold region
+    plt.fill_between(thicknesses, 45, 55, color='red', alpha=0.25,
+                     label='Tritium Balance Threshold region')
+
+    plt.xlabel('Breeder Thickness (m)')
+    plt.ylabel('Percentage of Neutrons (%)')  # Change the y-label to 'Percentage of Neutrons (%)'
+    plt.title('Percentage of Neutrons vs Breeder Thickness')
+    plt.legend()
+    plt.yticks(np.arange(0, 100, 10))  # replace 'start', 'end', 'step' with your desired values
+    plt.grid(True)
+    plt.savefig("Blanket_Thickness_Sweep.png", dpi=1000)
 
 # %% Plotting Functions
 
@@ -204,7 +272,7 @@ def plot_neutron_paths(paths, x_lims=(0, 300), y_lims=(-100, 100), z_lims=(-100,
     ax.set_zlabel('Z')
 
     # Save the figure with a high resolution
-    # plt.savefig("Real_values_paths.png", dpi=1000)
+    plt.savefig("Real_values_paths_quartercm.png", dpi=1000)
 
 
 def plot_pie_charts(num_reflected, num_transmitted, num_in_blanket, absorbed_materials):
@@ -228,6 +296,9 @@ def plot_pie_charts(num_reflected, num_transmitted, num_in_blanket, absorbed_mat
     explode = (0.05,) * len(processes)
     fig, ax = plt.subplots(figsize=(6, 6))
     ax.pie(counts, labels=processes, explode=explode, autopct='%1.0f%%')
+    # Save the figure with a high resolution
+    plt.tight_layout()
+    plt.savefig("pie_chart_quartercm.png", dpi=1000)
 # %% Main
 
 
@@ -241,41 +312,81 @@ def main():
     cross_section_scatterings = {'Lithium-6': 0.97 * 10**-28, 'Lithium-7': 1.4 * 10**-28}
     number_density = 4.6424 * 10**28  # Number density of the material
     number_iterations = 5000  # The time for which the simulation should run
-    neutron_number_set = 500  # The number of starting neutrons
+    neutron_number_set = 2000  # The number of starting neutrons
     breeder_lims_set = (0.1, 0.8)  # The x values of where the breeder material begins and ends
     xlims_set = (-0.1, breeder_lims_set[1] + 0.1)  # NB these are the boundary conditions for the
     # simulation, can adjust as you wish.
     ylims_set = (-50, 50)
     zlims_set = (-50, 50)
 
-    # Call the simulate_neutron_flux function
-    num_absorbed, num_transmitted, num_reflected, num_in_blanket, num_scatters, paths, absorbed_materials = \
-        simulate_neutron_flux_store(materials, proportions, number_density, cross_section_scatterings,
-                                    cross_section_absorptions,
-                                    number_iterations, neutron_number_set, breeder_lims_set,
-                                    finite_space_lims=xlims_set, y_lims=ylims_set, z_lims=zlims_set,
-                                    velocity=1)
+    # Define the thicknesses to sweep over
+    small_thicknesses = np.linspace(0, 0.05, 20)
+    higher_thicknesses = np.linspace(0.06, 1, 95)  # Adjust as needed
+    thicknesses = np.hstack((small_thicknesses, higher_thicknesses))
 
-    # Absorbed is when a neutron has reacted with the blanket material
-    print(f"Number of Neutrons Absorbed: {num_absorbed}")
-    # Transmitted is when a neutron has left the simulation boundaries after passing through
-    # the blanket
-    print(f"Number of Neutrons Transmitted: {num_transmitted}")
-    # Reflected is when a neutron has left the simulation boundaries in front of the blanket
-    print(f"Number of Neutrons Reflected: {num_reflected}")
-    # "in blanket" refers to when a neutron has left the simulation while within the blanket
-    # for approximation reasons we will ignore these ones
-    print(f"Number of Neutrons in Blanket: {num_in_blanket}")
-    print(f"Number of Scatters: {num_scatters}")
+    # Start the timer for simulate_neutron_flux_store function
+    start_time = time.time()
+    # Call the sweep function
+    results = sweep_thickness(materials, proportions, number_density, cross_section_absorptions, cross_section_scatterings,
+                              number_iterations, neutron_number_set, thicknesses, 0.1, xlims_set, ylims_set, zlims_set)
+    # Stop the timer and print the runtime
+    end_time = time.time()
+    print(f"Runtime of thickness sweep: {end_time - start_time} seconds")
+    # Call the plot function
+    start_time = time.time()
+    plot_results(*results, neutron_number_set)
+    end_time = time.time()
+    print(f"Runtime of plotting: {end_time - start_time} seconds")
 
-    # Call the plot_pie_charts function
-    plot_pie_charts(num_reflected, num_transmitted, num_in_blanket, absorbed_materials)
+    # # Start the timer for simulate_neutron_flux_store function
+    # start_time = time.time()
 
-    # Call the plot_neutron_paths function
-    plot_neutron_paths(paths, x_lims=xlims_set, y_lims=ylims_set,
-                       z_lims=zlims_set, breeder_lims=breeder_lims_set, n=5)
-    # Note "n" makes it so only "n" of the neutron paths are plotted. This increased to reduce
-    # plotting load.
+    # # Simulate the neutron flux and store the results
+    # num_absorbed, num_transmitted, num_reflected, num_in_blanket, num_scatters, paths, absorbed_materials = \
+    #     simulate_neutron_flux_store(materials, proportions, number_density, cross_section_scatterings,
+    #                                 cross_section_absorptions,
+    #                                 number_iterations, neutron_number_set, breeder_lims_set,
+    #                                 finite_space_lims=xlims_set, y_lims=ylims_set, z_lims=zlims_set,
+    #                                 velocity=1)
+
+    # # Stop the timer and print the runtime
+    # end_time = time.time()
+    # print(f"Runtime of simulate_neutron_flux_store: {end_time - start_time} seconds")
+
+    # # Absorbed is when a neutron has reacted with the blanket material
+    # print(f"Number of Neutrons Absorbed: {num_absorbed}")
+    # # Transmitted is when a neutron has left the simulation boundaries after passing through
+    # # the blanket
+    # print(f"Number of Neutrons Transmitted: {num_transmitted}")
+    # # Reflected is when a neutron has left the simulation boundaries in front of the blanket
+    # print(f"Number of Neutrons Reflected: {num_reflected}")
+    # # "in blanket" refers to when a neutron has left the simulation while within the blanket
+    # # for approximation reasons we will ignore these ones
+    # print(f"Number of Neutrons in Blanket: {num_in_blanket}")
+    # print(f"Number of Scatters: {num_scatters}")
+
+    # # Start the timer for plot_pie_charts function
+    # start_time = time.time()
+
+    # # Call the plot_pie_charts function
+    # plot_pie_charts(num_reflected, num_transmitted, num_in_blanket, absorbed_materials)
+
+    # # Stop the timer and print the runtime
+    # end_time = time.time()
+    # print(f"Runtime of plot_pie_charts: {end_time - start_time} seconds")
+
+    # # Start the timer for plot_neutron_paths function
+    # start_time = time.time()
+
+    # # Call the plot_neutron_paths function
+    # plot_neutron_paths(paths, x_lims=xlims_set, y_lims=ylims_set,
+    #                    z_lims=zlims_set, breeder_lims=breeder_lims_set, n=5)
+    # # Note "n" makes it so only "n" of the neutron paths are plotted. This increased to reduce
+    # # plotting load.
+
+    # # Stop the timer and print the runtime
+    # end_time = time.time()
+    # print(f"Runtime of plot_neutron_paths: {end_time - start_time} seconds")
 
     plt.show()
 
